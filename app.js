@@ -174,9 +174,17 @@
     return buildSampleState();
   }
 
-  function saveState() {
+  function saveState(opts) {
+    opts = opts || {};
+    if (!opts.silent) {
+      if (!state.meta) state.meta = {};
+      state.meta.lastModified = nowIso();
+    }
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch (e) { toast("Could not save data - device storage may be full.", "error"); }
+    if (!opts.silent && window.CCPSync && typeof window.CCPSync.onLocalChange === "function") {
+      window.CCPSync.onLocalChange();
+    }
   }
 
   /* ------------------------------------------------------------------ *
@@ -300,6 +308,7 @@
     else if (currentView === "fatsat") renderTestRecords();
     else if (currentView === "punchlist") renderPunchList();
     else if (currentView === "dailylog") renderDailyLog();
+    else if (currentView === "reports" && window.CCPSync) window.CCPSync.renderCloudCard();
     updateTopbar();
   }
 
@@ -1104,14 +1113,17 @@
     if (!state.tests) state.tests = [];
     if (!state.punch) state.punch = [];
     if (!state.dailyLogs) state.dailyLogs = [];
-    saveState();
+    if (!state.meta.lastModified) state.meta.lastModified = state.meta.createdAt || nowIso();
+    if (!state.meta.lastSyncedAt) state.meta.lastSyncedAt = "";
+    if (!state.meta.lastKnownRemoteModified) state.meta.lastKnownRemoteModified = "";
+    saveState({ silent: true });
 
     wireSetup(); wireChecklist(); wireTestRecords(); wirePunchList(); wireDailyLog();
     wireReports(); wireQuickActions(); wireSheetChrome(); wireTheme();
 
     updateNetStatus();
-    window.addEventListener("online", updateNetStatus);
-    window.addEventListener("offline", updateNetStatus);
+    window.addEventListener("online", function () { updateNetStatus(); if (window.CCPSync) window.CCPSync.onConnectivityChange(true); });
+    window.addEventListener("offline", function () { updateNetStatus(); if (window.CCPSync) window.CCPSync.onConnectivityChange(false); });
 
     navigate("dashboard");
 
@@ -1120,7 +1132,36 @@
         navigator.serviceWorker.register("service-worker.js").catch(function () { /* offline-first still works without it */ });
       });
     }
+
+    if (window.CCPSync && typeof window.CCPSync.init === "function") window.CCPSync.init();
   }
+
+  /* ------------------------------------------------------------------ *
+   * 20. PUBLIC BRIDGE FOR OPTIONAL MODULES (e.g. gdrive-sync.js)
+   * ------------------------------------------------------------------ */
+  window.CCP = {
+    getState: function () { return state; },
+    replaceState: function (newState, opts) {
+      state = newState;
+      if (!state.meta) state.meta = { createdAt: nowIso(), collapsedCategories: {} };
+      if (!state.tests) state.tests = [];
+      if (!state.punch) state.punch = [];
+      if (!state.dailyLogs) state.dailyLogs = [];
+      saveState(opts || { silent: true });
+      renderCurrentView();
+    },
+    saveState: saveState,
+    computeStats: computeStats,
+    toast: toast,
+    confirmDialog: confirmDialog,
+    openSheet: openSheet,
+    closeSheet: closeSheet,
+    nowIso: nowIso,
+    todayDateStr: todayDateStr,
+    esc: esc,
+    downloadBlob: downloadBlob,
+    getCurrentView: function () { return currentView; }
+  };
 
   document.addEventListener("DOMContentLoaded", init);
 })();

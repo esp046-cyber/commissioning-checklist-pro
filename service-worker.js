@@ -2,12 +2,13 @@
    Cache-first app shell with a safe versioned-cache update strategy.
    Bump CACHE_VERSION whenever any shell file changes so clients pick up the update. */
 
-var CACHE_VERSION = "ccp-v1";
+var CACHE_VERSION = "ccp-v2";
 var SHELL_FILES = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./gdrive-sync.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -39,6 +40,15 @@ self.addEventListener("activate", function (event) {
 
 self.addEventListener("fetch", function (event) {
   if (event.request.method !== "GET") return;
+
+  // Never let the service worker touch Google Sign-In / Drive API / Picker
+  // traffic (or any other cross-origin request). These must always go
+  // straight to the network and are never cached, so no OAuth token or
+  // Drive response is ever stored by the service worker.
+  var reqUrl = new URL(event.request.url);
+  if (reqUrl.origin !== self.location.origin) {
+    return; // let the browser handle it normally, untouched
+  }
 
   event.respondWith(
     caches.match(event.request).then(function (cached) {
